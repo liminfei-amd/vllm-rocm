@@ -120,7 +120,13 @@ class Server:
                     os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-        subprocess.run(["pkill", "-9", "-f", "vllm.entrypoints"], check=False)
+        # vLLM spawns child processes whose titles ("VLLM::EngineCore") don't
+        # match "vllm.entrypoints"; case-insensitively sweep all of them so no
+        # orphan keeps holding VRAM into the next tier/run.
+        subprocess.run(
+            ["pkill", "-9", "-if", "vllm|enginecore|resource_tracker"],
+            check=False,
+        )
 
 
 # --------------------------------------------------------------------------
@@ -225,7 +231,10 @@ def main():
     parser = argparse.ArgumentParser(description="Tier 2 functional inference")
     parser.add_argument("--bundle-root", required=True)
     parser.add_argument("--gfx-target", required=True)
-    parser.add_argument("--model", default="facebook/opt-125m")
+    # Small *instruct* model: supports /v1/chat/completions (has a chat
+    # template) as well as /v1/completions, so every endpoint check is valid.
+    # A base model like facebook/opt-125m 400s on the chat endpoint.
+    parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
     parser.add_argument("--port", type=int, default=8192)
     parser.add_argument("--candidate-tag", default=None)
     parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID"))

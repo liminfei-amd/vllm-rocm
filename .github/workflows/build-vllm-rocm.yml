@@ -538,8 +538,10 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          pkill -9 -f "vllm.entrypoints" 2>/dev/null || true
-          pkill -9 -f "resource_tracker" 2>/dev/null || true
+          # vLLM child processes are titled "VLLM::EngineCore" etc., which a
+          # "vllm.entrypoints" match misses — leaving an orphan holding VRAM and
+          # causing spurious OOM in the next run. Sweep case-insensitively.
+          pkill -9 -if "vllm|enginecore|resource_tracker" 2>/dev/null || true
 
   # ======================================================================
   # Tier 3 — lemonade integration. Defined as a reusable workflow in the
