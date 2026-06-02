@@ -368,10 +368,24 @@ jobs:
         # here after its own 5 retries. Pull the artifact zip directly with curl
         # (streams to disk, follows the blob redirect, resumable) and unzip it,
         # which is far more robust for multi-GB artifacts.
-        ART_ID=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-                   --jq '.artifacts[] | select(.name=="vllm-ubuntu-rocm-gfx1151-x64") | .id')
+        # Resolve the artifact id via the REST API with curl + python3 — the box
+        # does not have the gh CLI installed.
+        ART_ID=$(curl -fsSL \
+                   -H "Authorization: Bearer $GH_TOKEN" \
+                   -H "Accept: application/vnd.github+json" \
+                   "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+                 | python3 -c "import sys,json; print(next((a['id'] for a in json.load(sys.stdin)['artifacts'] if a['name']=='vllm-ubuntu-rocm-gfx1151-x64'), ''))")
         [ -n "$ART_ID" ] || { echo "::error::gfx1151 artifact not found for this run"; exit 1; }
         echo "Artifact id: $ART_ID"
+
+        # Fail fast with a clear message if the box lacks room for the ~11 GB
+        # extracted build (needs the 3.3 GB zip + 11 GB extracted ≈ 15 GB).
+        avail_gb=$(df -BG --output=avail "$WORK" | tail -1 | tr -dc '0-9')
+        echo "Available space: ${avail_gb} GB"
+        if [ "${avail_gb:-0}" -lt 15 ]; then
+          echo "::error::Only ${avail_gb} GB free on the runner; need ~15 GB for the 11 GB build. Free disk on this runner."
+          exit 1
+        fi
 
         ok=0
         for attempt in 1 2 3; do
