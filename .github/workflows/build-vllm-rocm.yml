@@ -487,6 +487,78 @@ jobs:
         pkill -9 -f "vllm.entrypoints.openai.api_server" 2>/dev/null || true
         rm -rf "$WORK" || true
 
+  # Publish the qualification result (pass OR fail) to the qualification-data
+  # branch so the external dashboard can poll it. Runs on a hosted runner (the
+  # GPU box has no gh/git tooling). Contract: docs/qualification-feed.md.
+  publish-qualification:
+    needs: qualify
+    if: always() && (needs.qualify.result == 'success' || needs.qualify.result == 'failure')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout repository (for the publish script + schema doc)
+      uses: actions/checkout@v4
+      with:
+        path: repo
+
+    - name: Download qualification report
+      uses: actions/download-artifact@v4
+      with:
+        name: qualification-gfx1151
+        path: report
+
+    - name: Publish to qualification-data branch
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        if [ ! -f report/qualification-report.json ]; then
+          echo "::warning::no qualification-report.json in artifact; nothing to publish"
+          exit 0
+        fi
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+        RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        BRANCH="qualification-data"
+
+        # Race-safe: each attempt re-clones the latest branch, re-applies our
+        # idempotent (build_id-keyed) upsert, and pushes; a rejected push (branch
+        # moved under us) just retries on top of the new tip.
+        pushed=0
+        for attempt in 1 2 3 4 5; do
+          rm -rf data
+          if git clone --depth 1 --branch "$BRANCH" "$REPO_URL" data 2>/dev/null; then
+            echo "cloned existing $BRANCH"
+          else
+            echo "creating orphan $BRANCH"
+            git clone --depth 1 "$REPO_URL" data
+            git -C data checkout --orphan "$BRANCH"
+            git -C data rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          python3 repo/scripts/publish_qualification.py \
+            --report report/qualification-report.json \
+            --data-dir data/qualification \
+            --run-url "$RUN_URL"
+          # Keep the contract doc alongside the data on the branch.
+          cp repo/docs/qualification-feed.md data/qualification/SCHEMA.md
+
+          git -C data add -A
+          if git -C data diff --cached --quiet; then
+            echo "no changes to publish"; pushed=1; break
+          fi
+          git -C data commit -q -m "qualification: run ${{ github.run_id }} (gfx1151)"
+          if git -C data push origin "$BRANCH" 2>/dev/null; then
+            pushed=1; break
+          fi
+          echo "push attempt $attempt failed (branch moved?); retrying"; sleep $((attempt * 3))
+        done
+        [ "$pushed" = 1 ] || { echo "::error::failed to publish after retries"; exit 1; }
+        echo "Feed published:"
+        echo "  https://raw.githubusercontent.com/${{ github.repository }}/${BRANCH}/qualification/index.json"
+
   create-release:
     needs: [prepare-matrix, build-ubuntu, qualify]
     runs-on: ubuntu-22.04
@@ -598,3 +670,22 @@ jobs:
 
         Portable vLLM build for $TARGET. Includes bundled Python, PyTorch ROCm, and ROCm runtime. No separate installation required." \
           $upload_files
+
+    - name: Attach qualification report to release (gfx1151)
+      # Co-locate the qualification proof with the shippable artifact. gfx1151 is
+      # the hardware-qualified target; best-effort so it never fails the release.
+      if: matrix.gfx_target == 'gfx1151'
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        TAG="${{ steps.generate-tag.outputs.tag }}"
+        rm -rf qual && mkdir -p qual
+        if ! gh run download "${{ github.run_id }}" -n qualification-gfx1151 -D qual --repo "${{ github.repository }}"; then
+          echo "::warning::qualification artifact not found; skipping attach"; exit 0
+        fi
+        if [ -f qual/qualification-report.json ]; then
+          cp qual/qualification-report.json "qualification-report-${TAG}.json"
+          gh release upload "$TAG" "qualification-report-${TAG}.json" --clobber
+          echo "Attached qualification-report-${TAG}.json to $TAG"
+        fi
