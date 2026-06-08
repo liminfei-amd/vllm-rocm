@@ -10,14 +10,15 @@ list for drill-down.
 
 Promotion rule (per target):
   - The tiers named in --require-tiers must all be present AND status == pass.
-  - gfx1151 (has hardware): require tier0,tier1,tier2,tier3.
+  - gfx1151 (has hardware): require tier0,tier1,tier2. (Lemonade-integration
+    coverage lives in lemonade's own adoption gate, not here.)
   - gfx1150/110X/120X (no hardware): require tier0 only; the record is flagged
     hardware_validated=false so consumers know it was build-verified only.
 
 Usage:
     python3 aggregate.py --fragments-dir ./fragments --gfx-target gfx1151 \
         --candidate-tag vllm0.21.0-rocm7.13.0-gfx1151 \
-        --require-tiers tier0,tier1,tier2,tier3 \
+        --require-tiers tier0,tier1,tier2 \
         --output qualification-report.json --ledger results/ledger.jsonl
 """
 
