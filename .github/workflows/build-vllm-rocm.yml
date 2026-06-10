@@ -280,6 +280,17 @@ jobs:
             sleep $((attempt * 10))
           done
           [ "$ok" = 1 ] || { echo "::error::vLLM install failed after 3 attempts"; exit 1; }
+          # 3c. Repair legacy-resolver over-picks. The legacy resolver takes the
+          #    first-found version and ignores transitive UPPER bounds, so it can
+          #    leave a too-new transitive dep. transformers needs
+          #    tokenizers>=0.22.0,<=0.23.0 but legacy pulled 0.23.1, which makes
+          #    transformers raise ImportError at import and breaks vllm-server
+          #    (caught by qualify T1.5). Pin it back into range (a one-package
+          #    resolve — no cycle). `pip check` then surfaces any OTHER legacy
+          #    mis-pick in the build log without failing the build (qualify is
+          #    the real gate).
+          $VLLM_ROOT/bin/pip install "tokenizers>=0.22.0,<=0.23.0"
+          $VLLM_ROOT/bin/pip check || echo "::warning::pip check reported dependency conflicts (see above); qualify will gate"
         fi
 
         # Use the AMD pip ROCm SDK amdsmi (_rocm_sdk_core/share/amd_smi) rather
