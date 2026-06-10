@@ -214,10 +214,18 @@ jobs:
             "torch[device-${DEV}]==${TORCH_VER}+${ROCM_STAMP}"
           # 3. The universal vLLM wheel + flash-attn (AMD index) + the rest from
           #    PyPI. vLLM declares no torch dep, so the matched torch is untouched.
-          /opt/vllm/bin/pip install \
-            --extra-index-url "$NIGHTLY_VLLM" \
-            --extra-index-url https://pypi.org/simple/ \
-            "$NIGHTLY_VLLM/$VLLM_WHL"
+          #    frameworks-nightlies can 403 a wheel GET transiently and pip does
+          #    not retry 4xx, so retry with backoff before failing the build.
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if /opt/vllm/bin/pip install \
+                 --extra-index-url "$NIGHTLY_VLLM" \
+                 --extra-index-url https://pypi.org/simple/ \
+                 "$NIGHTLY_VLLM/$VLLM_WHL"; then ok=1; break; fi
+            echo "::warning::vLLM install attempt $attempt failed (frameworks-nightlies transient 403?); retry in $((attempt*15))s"
+            sleep $((attempt * 15))
+          done
+          [ "$ok" = 1 ] || { echo "::error::vLLM install failed after 5 attempts"; exit 1; }
         fi
 
         # Use the AMD pip ROCm SDK amdsmi (_rocm_sdk_core/share/amd_smi) rather
