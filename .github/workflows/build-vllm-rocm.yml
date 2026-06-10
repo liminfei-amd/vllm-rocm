@@ -226,21 +226,25 @@ jobs:
           $VLLM_ROOT/bin/pip install --index-url "$NIGHTLY_TORCH" \
             --extra-index-url https://pypi.org/simple/ \
             "torch[device-${DEV}]==${TORCH_VER}+${ROCM_STAMP}"
-          # 3. The universal vLLM wheel + flash-attn (AMD index) + the rest from
+          # 3a. Pre-install amd-quark. vLLM pins amd-quark>=0.8.99, but every
+          #    amd-quark >=0.7 on PyPI caps Requires-Python at <3.13 while our
+          #    bundle is cp313. amd-quark is a pure-Python (py3-none-any) wheel —
+          #    the cap is a conservative untested-version guard, not a real ABI
+          #    limit — so install it ALONE with --ignore-requires-python (a tiny
+          #    candidate space). Scoping the flag here, not on the vLLM resolve,
+          #    is deliberate: passed globally it strips the Python filter from
+          #    every dep, ballooning pip's backtracking until it RecursionErrors.
+          #    Once installed and satisfying >=0.8.99, vLLM's resolve accepts it.
+          $VLLM_ROOT/bin/pip install --ignore-requires-python "amd-quark>=0.8.99"
+          # 3b. The universal vLLM wheel + flash-attn (AMD index) + the rest from
           #    PyPI. Install BY VERSION through the index (not a hand-built wheel
           #    URL): the host serves the wheel only at its %2B-encoded path, so a
           #    direct URL with a literal '+' gets WAF-403'd. Letting pip resolve
           #    the index href fetches the correctly-encoded URL. vLLM declares no
           #    torch dep, so the matched torch above is untouched.
-          #    --ignore-requires-python: vLLM pins amd-quark>=0.8.99, but every
-          #    amd-quark >=0.7 on PyPI caps Requires-Python at <3.13 while our
-          #    bundle is cp313. amd-quark is a pure-Python (py3-none-any) wheel —
-          #    the cap is a conservative untested-version guard, not a real ABI
-          #    limit — so ignoring it lets pip take 0.11.2 on 3.13. Everything
-          #    else resolves a real cp313 wheel, so the flag only unblocks quark.
           ok=0
           for attempt in 1 2 3; do
-            if $VLLM_ROOT/bin/pip install --ignore-requires-python \
+            if $VLLM_ROOT/bin/pip install \
                  --extra-index-url "$NIGHTLY_VLLM" \
                  --extra-index-url https://pypi.org/simple/ \
                  "vllm==$VLLM_VER"; then ok=1; break; fi
