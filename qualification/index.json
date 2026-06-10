@@ -1,7 +1,60 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-06-06T08:00:32Z",
+  "updated_at": "2026-06-10T23:56:20Z",
   "builds": [
+    {
+      "build_id": "27313772291-gfx1151-nightly",
+      "tag": "vllm0.21.1.dev0+rocm7.14.0a20260603.gad7125a43.d20260604-gfx1151",
+      "gfx_target": "gfx1151",
+      "channel": "nightly",
+      "generated_at": "2026-06-10T23:56:20Z",
+      "run_id": "27313772291",
+      "run_attempt": 1,
+      "run_url": "https://github.com/lemonade-sdk/vllm-rocm/actions/runs/27313772291",
+      "vllm_version": "0.21.1.dev0+rocm7.14.0a20260603.gad7125a43.d20260604",
+      "torch_version": "2.11.0+rocm7.14.0a20260603",
+      "rocm_version": "7.14.0",
+      "tests": {
+        "passed": 8,
+        "failed": 6,
+        "warned": 1,
+        "skipped": 0,
+        "total": 15
+      },
+      "qualified": false,
+      "overall": "fail",
+      "blocked_by": [
+        "tier0=warn",
+        "tier1=fail",
+        "tier2 missing"
+      ],
+      "summary": {
+        "title": "vllm-server launcher failed: tokenizers version mismatch",
+        "recommended_action": "Update tokenizers to a compatible version (0.22.0\u20130.23.0) and verify torch version metadata in vLLM's build configuration before rerunning qualification.",
+        "blocking_tests": [
+          "T1.5"
+        ],
+        "source": "llm"
+      },
+      "results": {
+        "T0.1": "warn",
+        "T0.2": "pass",
+        "T0.3": "pass",
+        "T0.4": "pass",
+        "T0.6": "pass",
+        "T1.1": "pass",
+        "T1.2": "pass",
+        "T1.3": "pass",
+        "T1.4": "pass",
+        "T1.5": "fail",
+        "T2.1": "missing",
+        "T2.2": "missing",
+        "T2.3": "missing",
+        "T2.4": "missing",
+        "T2.5": "missing"
+      },
+      "report_url": "reports/27313772291-gfx1151-nightly.json"
+    },
     {
       "build_id": "27056544386-gfx1151-stable",
       "tag": "vllm0.22.1-gfx1151",
