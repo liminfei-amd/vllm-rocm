@@ -232,9 +232,15 @@ jobs:
           #    direct URL with a literal '+' gets WAF-403'd. Letting pip resolve
           #    the index href fetches the correctly-encoded URL. vLLM declares no
           #    torch dep, so the matched torch above is untouched.
+          #    --ignore-requires-python: vLLM pins amd-quark>=0.8.99, but every
+          #    amd-quark >=0.7 on PyPI caps Requires-Python at <3.13 while our
+          #    bundle is cp313. amd-quark is a pure-Python (py3-none-any) wheel —
+          #    the cap is a conservative untested-version guard, not a real ABI
+          #    limit — so ignoring it lets pip take 0.11.2 on 3.13. Everything
+          #    else resolves a real cp313 wheel, so the flag only unblocks quark.
           ok=0
           for attempt in 1 2 3; do
-            if $VLLM_ROOT/bin/pip install \
+            if $VLLM_ROOT/bin/pip install --ignore-requires-python \
                  --extra-index-url "$NIGHTLY_VLLM" \
                  --extra-index-url https://pypi.org/simple/ \
                  "vllm==$VLLM_VER"; then ok=1; break; fi
