@@ -14,12 +14,17 @@ jobs:
           set -uo pipefail
           python3 -m venv /tmp/venv
           /tmp/venv/bin/pip install --upgrade pip
-          # AMD ROCm torch wheel bundles the ROCm SDK (_rocm_sdk_core) incl. the LLVM/clang used for Triton JIT
-          /tmp/venv/bin/pip install --index-url https://repo.amd.com/rocm/whl/gfx1151/ --extra-index-url https://pypi.org/simple torch
+          # EXACTLY like build-vllm-rocm.yml: AMD index ONLY (no pypi extra-index,
+          # otherwise pip resolves the CUDA torch from PyPI). The AMD ROCm torch
+          # wheel pulls the ROCm SDK (_rocm_sdk_core) that ships LLVM/clang for Triton JIT.
+          /tmp/venv/bin/pip install --index-url https://repo.amd.com/rocm/whl/gfx1151/ torch
           SP=$(/tmp/venv/bin/python3 -c "import site; print(site.getsitepackages()[0])")
           echo "site-packages: $SP"
+          # Guard: make sure we actually got the ROCm build, not a CUDA fallback.
+          /tmp/venv/bin/python3 -c "import torch,sys; print('torch',torch.__version__,'hip=',torch.version.hip); sys.exit(0 if torch.version.hip else 1)" \
+            || { echo "::error::installed torch is not a ROCm/HIP build"; exit 1; }
           LLVM="$SP/_rocm_sdk_core/lib/llvm"
-          [ -d "$LLVM" ] || { echo "::error::_rocm_sdk_core/lib/llvm not found in the AMD wheel"; ls -1 "$SP" | grep -i rocm || true; exit 1; }
+          [ -d "$LLVM" ] || { echo "::error::_rocm_sdk_core/lib/llvm not found"; ls -1 "$SP" | grep -i rocm || true; exit 1; }
           echo "=== real bundled LLVM resource dir(s) (lib/clang) ==="
           ls -1 "$LLVM/lib/clang"
           echo "=== clang* in bin BEFORE trim ==="
@@ -41,7 +46,7 @@ jobs:
           if [ "$CLANG_MAJOR" != "22" ]; then
             echo "NOTE: real re-exec target is clang-${CLANG_MAJOR}; the OLD hardcoded keep-list (clang-22) would have DELETED it -> Triton JIT 'unable to execute' failure."
           fi
-          # End-to-end: the surviving driver must still be able to re-exec its versioned binary.
+          # End-to-end: the surviving driver must still re-exec its versioned binary.
           echo "=== clang --version (re-execs clang-${CLANG_MAJOR}) ==="
           "$LLVM/bin/clang" --version
           echo "PASS: real AMD bundle clang major=${CLANG_MAJOR}; both 'clang' and 'clang-${CLANG_MAJOR}' survived PR #17 trim and the driver still runs."
