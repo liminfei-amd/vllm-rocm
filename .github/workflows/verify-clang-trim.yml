@@ -1,0 +1,47 @@
+name: verify-clang-trim
+on:
+  workflow_dispatch: {}
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install AMD ROCm torch (brings _rocm_sdk_core/lib/llvm) and run PR #17 trim on the REAL LLVM
+        run: |
+          set -uo pipefail
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install --upgrade pip
+          # AMD ROCm torch wheel bundles the ROCm SDK (_rocm_sdk_core) incl. the LLVM/clang used for Triton JIT
+          /tmp/venv/bin/pip install --index-url https://repo.amd.com/rocm/whl/gfx1151/ --extra-index-url https://pypi.org/simple torch
+          SP=$(/tmp/venv/bin/python3 -c "import site; print(site.getsitepackages()[0])")
+          echo "site-packages: $SP"
+          LLVM="$SP/_rocm_sdk_core/lib/llvm"
+          [ -d "$LLVM" ] || { echo "::error::_rocm_sdk_core/lib/llvm not found in the AMD wheel"; ls -1 "$SP" | grep -i rocm || true; exit 1; }
+          echo "=== real bundled LLVM resource dir(s) (lib/clang) ==="
+          ls -1 "$LLVM/lib/clang"
+          echo "=== clang* in bin BEFORE trim ==="
+          ls -1 "$LLVM/bin" | grep -E '^clang' || true
+          echo "clang driver -dumpversion: $("$LLVM/bin/clang" -dumpversion 2>/dev/null)"
+          # ---------- EXACT PR #17 trim logic ----------
+          CLANG_MAJOR="$(ls "$LLVM/lib/clang" 2>/dev/null | grep -E "^[0-9]+$" | sort -n | tail -1)"
+          [ -z "$CLANG_MAJOR" ] && CLANG_MAJOR="$("$LLVM/bin/clang" -dumpversion 2>/dev/null | cut -d. -f1)"
+          echo "Derived CLANG_MAJOR = $CLANG_MAJOR"
+          find "$LLVM/bin" -type f ! -name "clang" ! -name "clang-${CLANG_MAJOR}" -delete 2>/dev/null || true
+          find "$LLVM/bin" -type l ! -name "clang" -delete 2>/dev/null || true
+          rm -rf "$LLVM/lib/clang/${CLANG_MAJOR}/include/cuda_wrappers" 2>/dev/null || true
+          chmod +x "$LLVM/bin/clang"* 2>/dev/null || true
+          # ---------- assertions ----------
+          echo "=== clang* in bin AFTER trim ==="
+          ls -1 "$LLVM/bin"
+          test -x "$LLVM/bin/clang"               || { echo "::error::clang driver missing after trim"; exit 1; }
+          test -e "$LLVM/bin/clang-${CLANG_MAJOR}" || { echo "::error::clang-${CLANG_MAJOR} (re-exec target) was deleted"; exit 1; }
+          if [ "$CLANG_MAJOR" != "22" ]; then
+            echo "NOTE: real re-exec target is clang-${CLANG_MAJOR}; the OLD hardcoded keep-list (clang-22) would have DELETED it -> Triton JIT 'unable to execute' failure."
+          fi
+          # End-to-end: the surviving driver must still be able to re-exec its versioned binary.
+          echo "=== clang --version (re-execs clang-${CLANG_MAJOR}) ==="
+          "$LLVM/bin/clang" --version
+          echo "PASS: real AMD bundle clang major=${CLANG_MAJOR}; both 'clang' and 'clang-${CLANG_MAJOR}' survived PR #17 trim and the driver still runs."
